@@ -31,9 +31,9 @@ Webhooks are not available yet, so poll the result endpoints from your back end.
 
 The capture page photographs the ID document and takes a selfie, so the WebView needs the camera.
 
-- `Info.plist` must contain `NSCameraUsageDescription` (and, because the page's camera components can request audio devices, `NSMicrophoneUsageDescription`). Both are set in this project. Write text that tells the user why you need them.
+- `Info.plist` must contain `NSCameraUsageDescription`. This project also sets `NSMicrophoneUsageDescription`; keep it unless you have confirmed your flow never needs it. Write text that tells the user why you need access.
 - Request camera access **before** loading the page, as `HomeViewController.requestCameraAccess` does. If access was denied, send the user to Settings instead of loading a page that cannot capture.
-- `WKWebViewConfiguration` needs `allowsInlineMediaPlayback = true` so the camera preview stays inside the page. See `ViewController.viewDidLoad`.
+- This project sets `allowsInlineMediaPlayback = true` on the `WKWebViewConfiguration` (see `ViewController.viewDidLoad`). Keep it so the camera preview plays inside the page.
 - Test on a device. The simulator has no camera.
 
 ## Files
