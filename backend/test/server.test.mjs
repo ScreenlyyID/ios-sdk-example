@@ -6,7 +6,7 @@ import { createServer } from "../server.mjs";
 
 let fake, fakeUrl, app, appUrl;
 const calls = [];
-let resultStatus = 404;
+let resultStatus = 500;
 
 before(async () => {
   fake = http.createServer((req, res) => {
@@ -56,7 +56,7 @@ test("creates a session with the key added on the server, and never returns the 
 
 test("reading a result sends x-api-key and the stored x-correlation-id; pending until the API says 200", async () => {
   const { verificationId } = await (await post("/verifications", {})).json();
-  resultStatus = 404;
+  resultStatus = 500; // what the real API returns until the capture has finished
   let r = await fetch(`${appUrl}/verifications/${verificationId}`);
   assert.equal(r.status, 200); assert.deepEqual(await r.json(), { status: "pending" });
   resultStatus = 200;
@@ -65,6 +65,14 @@ test("reading a result sends x-api-key and the stored x-correlation-id; pending 
   const upstream = calls.at(-1);
   assert.equal(upstream.url, "/api/v1/document/result");
   assert.equal(upstream.headers["x-api-key"], "test_good"); assert.equal(upstream.headers["x-correlation-id"], "11111111-2222-3333-4444-555555555555");
+});
+
+test("an unexpected status from ScreenlyyID is an error, not an endless pending", async () => {
+  const { verificationId } = await (await post("/verifications", {})).json();
+  resultStatus = 403;
+  const r = await fetch(`${appUrl}/verifications/${verificationId}`);
+  assert.equal(r.status, 502); assert.match((await r.json()).error, /HTTP 403/);
+  resultStatus = 500;
 });
 
 test("unknown ids and unknown routes are 404, bad JSON is 400", async () => {

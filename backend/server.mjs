@@ -60,6 +60,7 @@ export function createServer({ apiKey, apiUrl = "https://api.screenlyyid.com", t
       body: JSON.stringify(body),
     });
     if (r.status === 401) return send(res, 502, { error: "The ScreenlyyID API key was not accepted. Check SCREENLYYID_API_KEY." });
+    // 400 and 401 come back as a problem-details JSON body ({ title, status, traceId }); a 400 does not say which product code was wrong.
     if (r.status === 400) return send(res, 502, { error: "ScreenlyyID rejected the request. Check that the idv product is activated on your account." });
     if (!r.ok) return send(res, 502, { error: `ScreenlyyID instance/create failed (HTTP ${r.status}).` });
 
@@ -81,8 +82,10 @@ export function createServer({ apiKey, apiUrl = "https://api.screenlyyid.com", t
     const headers = { "x-api-key": apiKey, "x-correlation-id": session.correlationId };
     const r = await upstream("/api/v1/document/result", { headers });
     if (r.status === 401) return send(res, 502, { error: "The ScreenlyyID API key was not accepted." });
-    // Webhooks are not available, so the result is polled. Anything other than 200 is treated as "not ready yet" (to be confirmed with a test key).
-    if (!r.ok) return send(res, 200, { status: "pending" });
+    // Webhooks are not available, so the result is polled. Until the person has finished the capture, the API answers
+    // HTTP 500 {"error":"internal_error"} (checked against the live API), which means "not ready yet".
+    if (r.status === 500) return send(res, 200, { status: "pending" });
+    if (!r.ok) return send(res, 502, { error: `ScreenlyyID document/result failed (HTTP ${r.status}).` });
 
     const result = await r.json();
     // GET /api/v1/document/data returns the data read from the ID (OCR and MRZ). It holds personal data, so fetch it here
