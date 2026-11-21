@@ -82,8 +82,8 @@ export function createServer({ apiKey, apiUrl = "https://api.screenlyyid.com", t
     const headers = { "x-api-key": apiKey, "x-correlation-id": session.correlationId };
     const r = await upstream("/api/v1/document/result", { headers });
     if (r.status === 401) return send(res, 502, { error: "The ScreenlyyID API key was not accepted." });
-    // Webhooks are not available, so the result is polled. Until the person has finished the capture, the API answers
-    // HTTP 500 {"error":"internal_error"} (checked against the live API), which means "not ready yet".
+    // Call this after the app reports IDV_SESSION_COMPLETE: the hosted page sends that event only after the results are stored, so one call is enough.
+    // Called earlier than that, the API answers HTTP 500 {"error":"internal_error"} (checked against the live API), which we report as "pending".
     if (r.status === 500) return send(res, 200, { status: "pending" });
     if (!r.ok) return send(res, 502, { error: `ScreenlyyID document/result failed (HTTP ${r.status}).` });
 

@@ -15,11 +15,12 @@ class SuccessViewController: UIViewController {
     //MARK: - UIView Controller Methods
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        pollResult(attempt: 1)
+        fetchResult()
     }
 
-    /// Step 4: ask the back end for the result. The back end reads it from ScreenlyyID; webhooks are not available, so we poll.
-    private func pollResult(attempt: Int) {
+    /// Step 4: ask the back end for the result. IDV_SESSION_COMPLETE is sent only after the hosted page has processed the
+    /// document and selfie and the results are stored, so one request is enough: no polling.
+    private func fetchResult() {
         guard !verificationId.isEmpty else { return }
         Backend.fetchResult(verificationId: verificationId) { [weak self] result in
             DispatchQueue.main.async {
@@ -28,19 +29,18 @@ class SuccessViewController: UIViewController {
                 case .success(let json) where (json["status"] as? String) == "ready":
                     // In a real app: decide what to do next. The full decision stays on your back end.
                     self.showMessage("Verification result is ready.")
-                case .success where attempt < 20:
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { self.pollResult(attempt: attempt + 1) }
                 case .success:
-                    self.showMessage("The result is not ready yet. Try again later.")
+                    self.showMessage("The result is not available yet.", retry: true)
                 case .failure(let error):
-                    self.showMessage("Could not get the result: \(error.localizedDescription)")
+                    self.showMessage("Could not get the result: \(error.localizedDescription)", retry: true)
                 }
             }
         }
     }
 
-    private func showMessage(_ message: String) {
+    private func showMessage(_ message: String, retry: Bool = false) {
         let alert = UIAlertController(title: "Verification", message: message, preferredStyle: .alert)
+        if retry { alert.addAction(UIAlertAction(title: "Try again", style: .default) { [weak self] _ in self?.fetchResult() }) }
         alert.addAction(UIAlertAction(title: "Okay", style: .cancel))
         present(alert, animated: true)
     }
