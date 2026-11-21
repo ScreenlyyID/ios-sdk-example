@@ -67,4 +67,4 @@ The capture page photographs the ID document and takes a selfie, so the WebView 
 - `DemoCamera/LaunchViewController.swift`: configuration, and the app's calls to your back end.
 - `DemoCamera/HomeViewController.swift`: camera permission and the two buttons.
 - `DemoCamera/ViewController.swift`: the `WKWebView`, the event listener, completion and error handling.
-- `DemoCamera/SuccessViewController.swift`: asks the back end for the result once, standing in for the next step of your app.
+- `DemoCamera/SuccessViewController.swift`: asks the back end for the result once and shows it: the outcome (approved, needs review or rejected, from `Decision.Level`, `LivenessResult.Result` and `FaceMatchResult.IsMatch`) and the level of each data point. None of those fields holds personal data. In a real app your back end applies that rule and sends the app only the outcome.
