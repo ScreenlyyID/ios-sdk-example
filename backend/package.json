@@ -1,0 +1,12 @@
+{
+  "name": "screenlyyid-ios-example-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Example back end for the ScreenlyyID iOS example: the only place the API key and the CorrelationId live.",
+  "type": "module",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test"
+  }
+}

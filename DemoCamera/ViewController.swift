@@ -11,17 +11,12 @@ import WebKit
 
 
 class ViewController: UIViewController, WKUIDelegate, WKNavigationDelegate, WKScriptMessageHandler {
-//    // Handle JavaScript message
-//    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-//        // Check if the eventName is 'IDV_SESSION_COMPLETE'
-//        if let messageBody = message.body as? [String: Any], let eventName = messageBody["eventName"] as? String, eventName == "IDV_SESSION_COMPLETE" {
-//            print("Session Complete event received from JavaScript!")
-//            // Handle the event (e.g., navigate to another screen)
-//        }
-//    }
     
     var webView: WKWebView!
     var stLoadUrl: String = ""
+    /// Your back end's id for this verification. The app uses it to ask the back end for the result (step 4).
+    var verificationId: String = ""
+    private var finished = false
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -68,59 +63,41 @@ class ViewController: UIViewController, WKUIDelegate, WKNavigationDelegate, WKSc
         // You might need to handle permissions from the webpage here
     }
     
+    /// Step 3: events from the hosted page arrive as postMessage. They look like { eventName, isError, error }.
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-//        print("message body: \(message.body)")
-//        print("message frameInfo: \(message.frameInfo)")
-        if let messageBody = message.body as? String {
-            var dictServiceData: [String:AnyObject] =  [String:AnyObject]()
-            dictServiceData = messageBody.convertToAnyObjectDictionary() as [String:AnyObject]
-            if !dictServiceData.isEmpty{
-                if ((dictServiceData["eventName"] as? String) ?? "") == "IDV_SESSION_COMPLETE"{
-                    if !((dictServiceData["isError"] as? Bool) ?? false){
-                        let vc = (self.storyboard?.instantiateViewController(withIdentifier: "SuccessViewController"))! as! SuccessViewController
-                        self.navigationController?.pushViewController(vc, animated: true)
-                    }
-                }
+        guard !finished,
+              let body = message.body as? String,
+              let name = body.convertToAnyObjectDictionary()["eventName"] as? String else { return }
+        let event = body.convertToAnyObjectDictionary()
+        let isError = (event["isError"] as? Bool) ?? false
+
+        switch name {
+        case "IDV_SESSION_COMPLETE" where !isError:
+            // The document and selfie have been collected. It is safe to close the WebView and carry on.
+            finished = true
+            // Step 4: the result is read by YOUR back end, which holds the API key and the CorrelationId.
+            // The app only asks the back end for the outcome (see SuccessViewController).
+            if let vc = storyboard?.instantiateViewController(withIdentifier: "SuccessViewController") as? SuccessViewController {
+                vc.verificationId = verificationId
+                navigationController?.pushViewController(vc, animated: true)
             }
+        case "ERROR":
+            // A fatal, non-recoverable error while processing the images. Restart the flow, or carry on without verification.
+            finished = true
+            let reason = (event["error"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "Verification could not be completed."
+            let alert = UIAlertController(title: "Verification failed", message: reason, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "Try again", style: .default) { [weak self] _ in self?.navigationController?.popViewController(animated: true) })
+            present(alert, animated: true)
+        default:
+            break
         }
     }
-    
+
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         if navigationAction.navigationType == .other {
             decisionHandler(.allow)
         } else {
             decisionHandler(.allow)
         }
-        if let url = navigationAction.request.url {
-            print(url)
-        }
-    }
-
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        // Called when the page finishes loading
-        print("WebView Finished Loading")
-        
-        // Now, you can check for specific text or elements on the page
-        checkForTextInWebView()
-    }
-    
-    func checkForTextInWebView() {//Process complete!
-        let script = "document.body.innerText.includes('Process complete!');" // Replace with your specific text
-        
-        webView.evaluateJavaScript(script) { (result, error) in
-            if let error = error {
-                print("JavaScript evaluation error: \(error.localizedDescription)")
-                return
-            }
-            
-            if let containsText = result as? Bool {
-                if containsText {
-                    print("Text found in the WebView!")
-                } else {
-                    print("Text not found in the WebView.")
-                }
-            }
-        }
     }
 }
-
