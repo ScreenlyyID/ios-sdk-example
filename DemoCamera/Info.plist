@@ -21,6 +21,13 @@
 			</array>
 		</dict>
 	</dict>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>The demo app talks to the example back end running on your computer.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>We need access to your camera for taking pictures or scanning QR codes.</string>
 	<key>NSMicrophoneUsageDescription</key>

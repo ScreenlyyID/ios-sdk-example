@@ -14,8 +14,8 @@ class ViewController: UIViewController, WKUIDelegate, WKNavigationDelegate, WKSc
     
     var webView: WKWebView!
     var stLoadUrl: String = ""
-    /// The session token from `instance/create`. Your back end needs it to fetch the results (step 4).
-    var correlationId: String = ""
+    /// Your back end's id for this verification. The app uses it to ask the back end for the result (step 4).
+    var verificationId: String = ""
     private var finished = false
     
     override func viewDidLoad() {
@@ -75,11 +75,10 @@ class ViewController: UIViewController, WKUIDelegate, WKNavigationDelegate, WKSc
         case "IDV_SESSION_COMPLETE" where !isError:
             // The document and selfie have been collected. It is safe to close the WebView and carry on.
             finished = true
-            // Step 4 happens on YOUR back end, not in this app: send it `correlationId`, and it calls
-            //   GET /api/v1/document/data   and   GET /api/v1/document/result
-            // with the headers x-api-key and x-correlation-id (see the docs link in the README).
-            print("Capture complete. Send this correlation ID to your back end: \(correlationId)")
-            if let vc = storyboard?.instantiateViewController(withIdentifier: "SuccessViewController") {
+            // Step 4: the result is read by YOUR back end, which holds the API key and the CorrelationId.
+            // The app only asks the back end for the outcome (see SuccessViewController).
+            if let vc = storyboard?.instantiateViewController(withIdentifier: "SuccessViewController") as? SuccessViewController {
+                vc.verificationId = verificationId
                 navigationController?.pushViewController(vc, animated: true)
             }
         case "ERROR":

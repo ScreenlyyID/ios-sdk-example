@@ -1,31 +1,56 @@
 # ScreenlyyID iOS example
 
-A small iOS app that adds ScreenlyyID identity verification the way the docs describe: create a session, open the hosted capture page in a `WKWebView`, and listen for the completion event.
+An iOS app **and the back end it needs**, showing how to add ScreenlyyID identity verification: create a session, open the hosted capture page in a `WKWebView`, listen for the completion event, and read the result.
 
 - Docs: https://www.screenlyyid.com/docs/integrations/mobile-app/
 - AI quickstart: https://www.screenlyyid.com/docs/ai-quickstart/
 - All developer docs as Markdown: https://www.screenlyyid.com/docs/llms-full.txt
 
-Built with Xcode 16.2 (iOS deployment target 15.6). This is an example, not a library: copy the parts you need.
+This is an example, not a library: copy the parts you need. Built with Xcode 16.2 (iOS 15.6 or later).
 
-## Before you run it
+## The structure: every ScreenlyyID API call is made by a back end
 
-1. Create a **test** API key: register at https://admin.screenlyyid.com/register, then in the dashboard open **Integrations** and create a key in the test environment. Test keys start with `test_`.
-2. Open `DemoCamera/LaunchViewController.swift` and set `DemoConfig.apiKey` to that key. `DemoConfig.apiBaseURL` is already `https://api.screenlyyid.com`.
-3. Run on a **real device**. The capture page needs the camera, which the simulator does not have.
+```
+iOS app (DemoCamera/)            your back end (backend/)                 ScreenlyyID
+------------------------         ----------------------------------       ------------------------------------
+POST /verifications        -->   POST /api/v1/instance/create        -->  x-api-key: <key>
+                           <--   { CorrelationId, webEnrolmentUrl }   <--
+  <-- { verificationId, webEnrolmentUrl }
+open webEnrolmentUrl in a WKWebView ... the person captures the document and a selfie ...
+IDV_SESSION_COMPLETE event
+GET /verifications/:id     -->   GET /api/v1/document/result         -->  x-api-key: <key>
+                                                                          x-correlation-id: <CorrelationId>
+  <-- { status, result }   <--
+```
 
-> **The API key in this app is for the demo only.** A real app must never contain an API key. In production your own back end calls `instance/create` and returns the `webEnrolmentUrl` to the app (and keeps the `CorrelationId`).
+- **The API key and the `CorrelationId` live only in `backend/`.** The app contains neither. Anything inside an app can be extracted, so an API key there is a leaked key.
+- **The app calls only your back end** (`DemoConfig.backendURL`). It never calls `api.screenlyyid.com`.
+- The back end is deliberately tiny and has no dependencies (Node 18 or later). Copy its two routes into whatever server you already run.
 
-## What the app does
+## Run it
+
+1. **Get a test API key.** Register at https://admin.screenlyyid.com/register, open **Integrations** in the dashboard and create a key in the test environment. Test keys start with `test_`.
+2. **Start the back end:**
+   ```bash
+   cd backend
+   SCREENLYYID_API_KEY=test_xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx node server.mjs
+   ```
+   `npm test` runs its tests against a fake ScreenlyyID API (no key needed).
+3. **Point the app at it.** Set `DemoConfig.backendURL` in `DemoCamera/LaunchViewController.swift`. The camera needs a **real device**, so `localhost` will not work (it is the phone itself): use your Mac's address on the same Wi-Fi, for example `http://192.168.1.20:3000`. The app's `Info.plist` allows plain HTTP to local addresses for this demo only; a real back end uses HTTPS.
+4. Run the app on a device.
+
+> **Demo only:** the back end has no authentication of its own. A real back end must check who is asking before it creates or reads a verification, store the `CorrelationId` in a database (this one keeps it in memory), and decide what is safe to send back to the app.
+
+## What happens, step by step
 
 | Step | Where | What happens |
 |---|---|---|
-| 1. Create a session | `LaunchViewController.swift` | `POST /api/v1/instance/create` with the headers `x-api-key` and `Content-Type: application/json` and the body `{"GlobalScreening": ["idv"], "CustomerIntelligence": []}`. A `200` response has two properties, spelled exactly like this: `CorrelationId` and `webEnrolmentUrl`. `idv` (identity verification) must be activated on your account. A bad key returns `401`. A bad product code returns `400` with an empty body. |
+| 1. Create a session | `backend/server.mjs` (called from `LaunchViewController.swift`) | The back end sends `POST /api/v1/instance/create` with the headers `x-api-key` and `Content-Type: application/json` and the body `{"GlobalScreening": ["idv"], "CustomerIntelligence": []}`. A `200` response has two properties, spelled exactly like this: `CorrelationId` and `webEnrolmentUrl`. The back end keeps the `CorrelationId` and sends the app only a `verificationId` and the `webEnrolmentUrl`. `idv` (identity verification) must be activated on your account. A bad key returns `401`; a bad product code returns `400` with an empty body. |
 | 2. Open the WebView | `HomeViewController.swift`, `ViewController.swift` | The app asks for camera permission, then loads `webEnrolmentUrl` in a `WKWebView`. The second button adds `?skipIntro=true` to go straight to image capture. |
-| 3. Listen for events | `ViewController.swift` | The hosted page sends `postMessage` events shaped `{ "eventName": "", "isError": false, "error": "" }`. A user script forwards them to `userContentController(_:didReceive:)`. `IDV_SESSION_COMPLETE` means the document and selfie were collected, so the WebView can close. `ERROR` is a fatal error while processing the images. |
-| 4. Get the results | **Your back end** | Send the `CorrelationId` from step 1 to your back end. It calls `GET /api/v1/document/data` and `GET /api/v1/document/result` with the headers `x-api-key` and `x-correlation-id`. The app itself does not fetch results. You can also see every verification in the dashboard under **Verifications**. |
+| 3. Listen for events | `ViewController.swift` | The hosted page sends `postMessage` events shaped `{ "eventName": "", "isError": false, "error": "" }`. A user script forwards them to `userContentController(_:didReceive:)`. `IDV_SESSION_COMPLETE` means the document and selfie were collected. `ERROR` is a fatal error while processing the images. |
+| 4. Get the result | `backend/server.mjs` (asked from `SuccessViewController.swift`) | The app asks the back end `GET /verifications/:id`. The back end calls `GET /api/v1/document/result` with the headers `x-api-key` and `x-correlation-id`, and answers `pending` until the result is ready. It can also call `GET /api/v1/document/data` (the data read from the ID): that holds personal data, so keep it on the server and send the app only what it needs. |
 
-Webhooks are not available yet, so poll the result endpoints from your back end. See https://www.screenlyyid.com/docs/data/webhooks/.
+Webhooks are not available yet, so the result is polled. See https://www.screenlyyid.com/docs/data/webhooks/. You can also see every verification in the dashboard under **Verifications**.
 
 ## Camera and microphone permissions
 
@@ -38,7 +63,8 @@ The capture page photographs the ID document and takes a selfie, so the WebView 
 
 ## Files
 
-- `LaunchViewController.swift`: configuration, `instance/create`, error handling.
-- `HomeViewController.swift`: camera permission and the two buttons.
-- `ViewController.swift`: the `WKWebView`, the event listener, completion and error handling.
-- `SuccessViewController.swift`: the screen shown after `IDV_SESSION_COMPLETE`, standing in for the next step of your app.
+- `backend/server.mjs`: the example back end. `backend/test/server.test.mjs`: its tests.
+- `DemoCamera/LaunchViewController.swift`: configuration, and the app's calls to your back end.
+- `DemoCamera/HomeViewController.swift`: camera permission and the two buttons.
+- `DemoCamera/ViewController.swift`: the `WKWebView`, the event listener, completion and error handling.
+- `DemoCamera/SuccessViewController.swift`: asks the back end for the result, standing in for the next step of your app.

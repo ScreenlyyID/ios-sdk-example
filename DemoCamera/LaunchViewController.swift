@@ -7,81 +7,83 @@
 
 import UIKit
 
-/// Settings for the demo. Replace the placeholders with your own values.
+/// Settings for the demo.
 enum DemoConfig {
-    /// ScreenlyyID API base URL.
-    static let apiBaseURL = "https://api.screenlyyid.com"
-    /// A **test** API key (it starts with `test_`) from the dashboard: Integrations > create key > test environment.
+    /// The address of YOUR back end (the `backend/` folder in this repo). This app never talks to ScreenlyyID directly.
     ///
-    /// DEMO ONLY. A real app must never contain an API key. In production, your own back end calls `instance/create`
-    /// and returns the `webEnrolmentUrl` (and keeps the `CorrelationId`) for this app to use. See the docs:
-    /// https://www.screenlyyid.com/docs/integrations/mobile-app/
-    static let apiKey = "YOUR_TEST_API_KEY"
-
-    static var isConfigured: Bool { !apiKey.isEmpty && apiKey != "YOUR_TEST_API_KEY" }
+    /// The API key and the CorrelationId (the ScreenlyyID session token) live only in the back end. An API key inside an app can be
+    /// extracted by anyone who has the app, so the ScreenlyyID API must be called from a server you control.
+    ///
+    /// Running on a real device (the camera needs one)? `localhost` is the phone itself. Use your Mac's address on the same Wi-Fi,
+    /// for example "http://192.168.1.20:3000".
+    static let backendURL = "http://localhost:3000"
 }
 
-/// What `POST /api/v1/instance/create` returns. The JSON property names are exactly `CorrelationId` and `webEnrolmentUrl`.
+/// What the back end returns from `POST /verifications`. There is no API key and no CorrelationId here: those stay on the server.
 struct VerificationSession {
-    /// The session token. Keep it: your back end sends it in the `x-correlation-id` header when it fetches the results (step 4).
-    let correlationId: String
+    /// Your back end's id for this verification. Use it to ask the back end for the result.
+    let verificationId: String
     /// The hosted document and selfie capture page to open in the WebView.
     let webEnrolmentUrl: String
+}
+
+/// All the app's network calls. They go to your back end only.
+enum Backend {
+    /// Step 1: ask the back end to create a verification session. The back end calls ScreenlyyID `instance/create` with the API key.
+    static func createVerification(completion: @escaping (Result<VerificationSession, Error>) -> Void) {
+        guard let url = URL(string: DemoConfig.backendURL + "/verifications") else {
+            return completion(.failure(BackendError.message("DemoConfig.backendURL is not a valid URL.")))
+        }
+        var request = URLRequest(url: url, timeoutInterval: 30)
+        request.httpMethod = "POST"
+        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("{}".utf8)
+        run(request) { result in
+            completion(result.flatMap { json in
+                guard let id = json["verificationId"] as? String, let url = json["webEnrolmentUrl"] as? String else {
+                    return .failure(BackendError.message("Unexpected response from the back end."))
+                }
+                return .success(VerificationSession(verificationId: id, webEnrolmentUrl: url))
+            })
+        }
+    }
+
+    /// Step 4: ask the back end for the result. It returns `["status": "pending"]` until the result is ready, then `["status": "ready", "result": ...]`.
+    static func fetchResult(verificationId: String, completion: @escaping (Result<[String: Any], Error>) -> Void) {
+        guard let url = URL(string: DemoConfig.backendURL + "/verifications/" + verificationId) else {
+            return completion(.failure(BackendError.message("DemoConfig.backendURL is not a valid URL.")))
+        }
+        run(URLRequest(url: url, timeoutInterval: 30), completion: completion)
+    }
+
+    private static func run(_ request: URLRequest, completion: @escaping (Result<[String: Any], Error>) -> Void) {
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error { return completion(.failure(error)) }
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            let json = data.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] } ?? [:]
+            if (200..<300).contains(status) { return completion(.success(json)) }
+            completion(.failure(BackendError.message((json["error"] as? String) ?? "The back end returned HTTP \(status).")))
+        }.resume()
+    }
+}
+
+enum BackendError: LocalizedError {
+    case message(String)
+    var errorDescription: String? { if case .message(let m) = self { return m }; return nil }
 }
 
 class LaunchViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        createSession()
-    }
-
-    /// Step 1: create a verification session with the Instance API.
-    private func createSession() {
-        guard DemoConfig.isConfigured else {
-            showError("Set DemoConfig.apiKey in LaunchViewController.swift to a test API key from the ScreenlyyID dashboard.")
-            return
-        }
-        guard let url = URL(string: DemoConfig.apiBaseURL + "/api/v1/instance/create") else {
-            showError("DemoConfig.apiBaseURL is not a valid URL.")
-            return
-        }
-
-        var request = URLRequest(url: url, timeoutInterval: 30)
-        request.httpMethod = "POST"
-        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.addValue(DemoConfig.apiKey, forHTTPHeaderField: "x-api-key")
-        // "idv" is the identity verification product. It must be activated on your account.
-        let body: [String: Any] = ["GlobalScreening": ["idv"], "CustomerIntelligence": [String]()]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
-            guard let self = self else { return }
-            if let error = error {
-                self.showError("Could not reach ScreenlyyID: \(error.localizedDescription)")
-                return
-            }
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            switch status {
-            case 200:
-                guard let data = data,
-                      let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-                      let correlationId = json["CorrelationId"] as? String,
-                      let webEnrolmentUrl = json["webEnrolmentUrl"] as? String else {
-                    self.showError("Unexpected response from instance/create.")
-                    return
+        Backend.createVerification { [weak self] result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success(let session): self?.showHome(with: session)
+                case .failure(let error): self?.showError("Could not start a verification: \(error.localizedDescription)\n\nIs the back end running? See the README.")
                 }
-                let session = VerificationSession(correlationId: correlationId, webEnrolmentUrl: webEnrolmentUrl)
-                DispatchQueue.main.async { self.showHome(with: session) }
-            case 401:
-                self.showError("The API key was not accepted (HTTP 401). Check the key, including its test_ prefix.")
-            case 400:
-                // instance/create returns 400 with an empty body, so there is no message to show.
-                self.showError("The request was rejected (HTTP 400). Check that the idv product is activated on your account.")
-            default:
-                self.showError("instance/create failed (HTTP \(status)).")
             }
-        }.resume()
+        }
     }
 
     private func showHome(with session: VerificationSession) {
@@ -91,11 +93,9 @@ class LaunchViewController: UIViewController {
     }
 
     private func showError(_ message: String) {
-        DispatchQueue.main.async {
-            let alert = UIAlertController(title: "Error", message: message, preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: "Okay", style: .cancel))
-            self.present(alert, animated: true)
-        }
+        let alert = UIAlertController(title: "Error", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Okay", style: .cancel))
+        present(alert, animated: true)
     }
 }
 

@@ -39,7 +39,7 @@ class HomeViewController: UIViewController {
                 guard let vc = self.storyboard?.instantiateViewController(withIdentifier: "ViewController") as? ViewController else { return }
                 // ?skipIntro=true goes straight to image capture.
                 vc.stLoadUrl = skipIntro ? session.webEnrolmentUrl + "?skipIntro=true" : session.webEnrolmentUrl
-                vc.correlationId = session.correlationId
+                vc.verificationId = session.verificationId
                 self.navigationController?.pushViewController(vc, animated: true)
             }
         }
