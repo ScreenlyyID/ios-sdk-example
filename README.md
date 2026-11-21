@@ -50,7 +50,7 @@ GET /verifications/:id     -->   GET /api/v1/document/result         -->  x-api-
 | 3. Listen for events | `ViewController.swift` | The hosted page sends `postMessage` events shaped `{ "eventName": "", "isError": false, "error": "" }`. A user script forwards them to `userContentController(_:didReceive:)`. `IDV_SESSION_COMPLETE` means the document and selfie were collected. `ERROR` is a fatal error while processing the images. |
 | 4. Get the result | `backend/server.mjs` (asked from `SuccessViewController.swift`) | The app asks the back end `GET /verifications/:id`. The back end calls `GET /api/v1/document/result` with the headers `x-api-key` and `x-correlation-id`, and answers `pending` if it is asked too early (before the capture has finished, the API returns HTTP 500 with `{"error":"internal_error"}`). `IDV_SESSION_COMPLETE` is sent only after the results are stored, so one request after the event is enough: there is no polling. It can also call `GET /api/v1/document/data` (the data read from the ID): that holds personal data, so keep it on the server and send the app only what it needs. |
 
-Webhooks are not available yet and are not needed here: the `IDV_SESSION_COMPLETE` event tells the app when to ask for the result. See https://www.screenlyyid.com/docs/data/webhooks/. You can also see every verification in the dashboard under **Verifications**.
+The `IDV_SESSION_COMPLETE` event tells the app when to ask for the result. You can also see every verification in the dashboard under **Verifications**.
 
 ## Camera and microphone permissions
 
